@@ -3,7 +3,10 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"math/rand"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/Mayvid0/netSimGo/internal/physical"
 	"github.com/Mayvid0/netSimGo/internal/topologies"
@@ -28,6 +31,21 @@ func main() {
 	}
 }
 
+func GenerateRandomMAC() string {
+	const hexChars = "0123456789ABCDEF"
+	source := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(source)
+	var sb strings.Builder
+	for i := 0; i < 6; i++ {
+		if i > 0 {
+			sb.WriteString(":")
+		}
+		sb.WriteByte(hexChars[r.Intn(len(hexChars))])
+		sb.WriteByte(hexChars[r.Intn(len(hexChars))])
+	}
+	return sb.String()
+}
+
 func pointToPointDriver() {
 	topology := &topologies.PointToPoint{}
 
@@ -36,14 +54,18 @@ func pointToPointDriver() {
 	fmt.Scanln(&numDevices)
 
 	for i := 1; i <= numDevices; i++ {
-		var name, mac string
+		var name string
 		fmt.Printf("Enter name for Device %d: ", i)
 		fmt.Scanln(&name)
-		fmt.Printf("Enter MAC Address for Device %d: ", i)
-		fmt.Scanln(&mac)
 
-		device := &physical.Device{Name: name, MACAddress: mac, LinkStatus: true}
+		device := &physical.Device{Name: name, MACAddress: GenerateRandomMAC(), LinkStatus: true}
 		topology.AddEndDevice(device)
+	}
+
+	// Print devices with their names and MAC addresses for user reference
+	fmt.Println("Devices in the topology:")
+	for _, device := range topology.Devices {
+		fmt.Printf("Name: %s, MAC: %s\n", device.Name, device.MACAddress)
 	}
 
 	var device1MAC, device2MAC string
@@ -83,6 +105,55 @@ func pointToPointDriver() {
 }
 
 func starDriver() {
-	// Driver code for Star topology
-	// Add your logic here
+	topology := &topologies.Star{}
+
+	var hubName string
+	fmt.Print("Enter name for Hub: ")
+	fmt.Scanln(&hubName)
+
+	hub := &physical.Hub{Device: physical.Device{Name: hubName, MACAddress: GenerateRandomMAC(), LinkStatus: true}}
+
+	var numDevices int
+	fmt.Print("Enter the number of devices to add: ")
+	fmt.Scanln(&numDevices)
+
+	for i := 1; i <= numDevices; i++ {
+		var name string
+		fmt.Printf("Enter name for Device %d: ", i)
+		fmt.Scanln(&name)
+
+		device := &physical.Device{Name: name, MACAddress: GenerateRandomMAC(), LinkStatus: true}
+		topology.AddEndDevice(device)
+		topology.ConnectEndDevice(hub, device)
+	}
+
+	// Print devices with their names and MAC addresses for user reference
+	fmt.Println("Devices in the topology:")
+	fmt.Printf("Hub: Name: %s, MAC: %s\n", hubName, hub.MACAddress)
+	for _, device := range topology.EndDevices {
+		fmt.Printf("Name: %s, MAC: %s\n", device.Name, device.MACAddress)
+	}
+
+	fmt.Print("Enter device that has to send message (by MAC address): ")
+	var sourceMAC string
+	fmt.Scanln(&sourceMAC)
+
+	var source *physical.Device
+	for _, device := range topology.EndDevices {
+		if device.MACAddress == sourceMAC {
+			source = device
+			break
+		}
+	}
+	if source == nil {
+		fmt.Println("Error: Device not found.")
+		return
+	}
+
+	fmt.Print("Enter message to send: ")
+	reader := bufio.NewReader(os.Stdin)
+	message, _ := reader.ReadString('\n')
+	message = message[:len(message)-1]
+
+	topology.SendDataToHub(source, hub, message)
 }
