@@ -7,6 +7,7 @@ type Device struct {
 	Name       string
 	MACAddress string
 	LinkStatus bool
+	PortNumber int
 }
 
 type Hub struct {
@@ -18,4 +19,16 @@ type Hub struct {
 type Connection struct {
 	Device1 *Device
 	Device2 *Device
+}
+
+type Bridge struct {
+	Device
+	NumberPorts     int
+	EndDevices      []*Hub
+	ForwardingTable map[string]int
+}
+
+type Switch struct {
+	Hub
+	SwitchingTable map[string]int
 }

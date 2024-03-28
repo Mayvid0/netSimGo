@@ -21,7 +21,7 @@ func (s *Star) ConnectEndDevice(hub *physical.Hub, device *physical.Device) erro
 	if !hub.LinkStatus || !device.LinkStatus {
 		return fmt.Errorf("cannot connect devices %s and %s: one or both devices are not linked", hub.Name, device.Name)
 	}
-	// Here you might perform additional connection logic specific to the Star topology
+
 	fmt.Printf("Connection established between hub %s and end device %s\n", hub.Name, device.Name)
 	return nil
 }
