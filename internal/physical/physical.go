@@ -8,6 +8,7 @@ type Device struct {
 	MACAddress string
 	LinkStatus bool
 	PortNumber int
+	HasToken   bool
 }
 
 type Hub struct {
