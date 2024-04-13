@@ -18,6 +18,10 @@ type StarTopologyWithSwitch struct {
 	topologies.Topology
 }
 
+type Token struct {
+	Available bool
+}
+
 func (s *StarTopologyWithSwitch) AddEndDevice(device *physical.Device) {
 	s.EndDevices = append(s.EndDevices, device)
 }
@@ -61,10 +65,17 @@ func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, message string) {
 	}
 
 	if targetDevice != nil {
-		fmt.Printf("Sending message from Switch %s to %s before adding some noise: %s\n", s.Name, targetDevice.Name, message)
-		noisyInputMessage := addNoise(message)
-		fmt.Printf("Sending message from Switch %s to %s after adding some noise: %s\n", s.Name, targetDevice.Name, noisyInputMessage)
-		s.ReceiveDataFromSwitch(targetDevice, noisyInputMessage)
+		if message[0] == '1' || message[0] == '0' {
+			fmt.Printf("Sending message from Switch %s to %s before adding some noise: %s\n", s.Name, targetDevice.Name, message)
+			noisyInputMessage := addNoise(message)
+			fmt.Printf("Sending message from Switch %s to %s after adding some noise: %s\n", s.Name, targetDevice.Name, noisyInputMessage)
+			s.ReceiveDataFromSwitch(targetDevice, noisyInputMessage)
+		} else {
+			fmt.Printf("Sending message from Switch %s to %s before adding some noise: %s\n", s.Name, targetDevice.Name, message)
+
+			s.ReceiveDataFromSwitch(targetDevice, message)
+		}
+
 		// Send the message to the target device here
 	} else {
 		fmt.Println("Error: End device not found for port number", port)
@@ -92,6 +103,7 @@ func (s *StarTopologyWithSwitch) SendDataToSwitch(switchDevice *physical.Switch,
 			s.SendDataFromSwitch(port, encodedMessage)
 		} else {
 			// Perform address learning
+			fmt.Printf("Performing address learning\n")
 			s.SwitchingTable(switchDevice)
 			s.SendDataToSwitch(switchDevice, source, receiver, encodedMessage)
 		}
@@ -103,6 +115,7 @@ func (s *StarTopologyWithSwitch) SendDataToSwitch(switchDevice *physical.Switch,
 			s.SendDataFromSwitch(port, message)
 		} else {
 			// Perform address learning
+			fmt.Printf("Performing address learning\n")
 			s.SwitchingTable(switchDevice)
 			s.SendDataToSwitch(switchDevice, source, receiver, message)
 		}
@@ -209,4 +222,27 @@ func binaryToDecimal(bits []byte) int {
 		}
 	}
 	return value
+}
+
+func TokenPassing(devices []*physical.Device, token *Token, tokenHoldTime time.Duration) {
+	// Assign the initial token to the first device
+	devices[0].HasToken = true
+	fmt.Printf("Token assigned to device %s\n", devices[0].Name)
+
+	currentIndex := 0
+	for {
+		// Check if the current device has the token
+		if devices[currentIndex].HasToken {
+			// Simulate the device holding the token for some time
+			time.Sleep(tokenHoldTime)
+
+			// Pass the token to the next device
+			devices[currentIndex].HasToken = false
+			nextIndex := (currentIndex + 1) % len(devices)
+			devices[nextIndex].HasToken = true
+
+			// Move to the next device
+			currentIndex = nextIndex
+		}
+	}
 }
