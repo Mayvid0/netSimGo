@@ -3,14 +3,13 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"math/rand"
 	"os"
-	"strings"
 	"time"
 
 	datalink "github.com/Mayvid0/netSimGo/internal/dataLinkLayer"
 	"github.com/Mayvid0/netSimGo/internal/physical"
 	"github.com/Mayvid0/netSimGo/internal/topologies"
+	"github.com/Mayvid0/netSimGo/utils"
 )
 
 func main() {
@@ -18,7 +17,7 @@ func main() {
 	fmt.Println("Select a topology:")
 	fmt.Println("1. Point-to-Point")
 	fmt.Println("2. Star")
-	fmt.Println("3. Switch")
+
 	fmt.Print("Enter your choice: ")
 	fmt.Scanln(&choice)
 
@@ -26,28 +25,20 @@ func main() {
 	case 1:
 		pointToPointDriver()
 	case 2:
-		starDriver()
-	case 3:
-		switchDriver()
+		fmt.Println("3. Hub")
+		fmt.Println("4. Switch")
+		var choice2 int
+		fmt.Scanln(&choice2)
+		switch choice2 {
+		case 3:
+			starDriver()
+		case 4:
+			switchDriver()
+		}
 	default:
 		fmt.Println("Invalid choice. Exiting.")
 		return
 	}
-}
-
-func GenerateRandomMAC() string {
-	const hexChars = "0123456789ABCDEF"
-	source := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(source)
-	var sb strings.Builder
-	for i := 0; i < 6; i++ {
-		if i > 0 {
-			sb.WriteString(":")
-		}
-		sb.WriteByte(hexChars[r.Intn(len(hexChars))])
-		sb.WriteByte(hexChars[r.Intn(len(hexChars))])
-	}
-	return sb.String()
 }
 
 func pointToPointDriver() {
@@ -62,7 +53,7 @@ func pointToPointDriver() {
 		fmt.Printf("Enter name for Device %d: ", i)
 		fmt.Scanln(&name)
 
-		device := &physical.Device{Name: name, MACAddress: GenerateRandomMAC(), LinkStatus: true}
+		device := &physical.Device{Name: name, MACAddress: utils.GenerateRandomMAC(), LinkStatus: true}
 		topology.AddEndDevice(device)
 	}
 
@@ -115,7 +106,7 @@ func starDriver() {
 	fmt.Print("Enter name for Hub: ")
 	fmt.Scanln(&hubName)
 
-	hub := &physical.Hub{Device: physical.Device{Name: hubName, MACAddress: GenerateRandomMAC(), LinkStatus: true}}
+	hub := &physical.Hub{Device: physical.Device{Name: hubName, MACAddress: utils.GenerateRandomMAC(), LinkStatus: true}}
 
 	var numDevices int
 	fmt.Print("Enter the number of devices to add: ")
@@ -126,7 +117,7 @@ func starDriver() {
 		fmt.Printf("Enter name for Device %d: ", i)
 		fmt.Scanln(&name)
 
-		device := &physical.Device{Name: name, MACAddress: GenerateRandomMAC(), LinkStatus: true}
+		device := &physical.Device{Name: name, MACAddress: utils.GenerateRandomMAC(), LinkStatus: true}
 		topology.AddEndDevice(device)
 		topology.ConnectEndDevice(hub, device)
 	}
@@ -162,6 +153,12 @@ func starDriver() {
 	topology.SendDataToHub(source, hub, message)
 }
 
+type MACPair struct {
+	SourceMAC   string
+	Message     string
+	ReceiverMAC string
+}
+
 func switchDriver() {
 	switchTopology := &datalink.StarTopologyWithSwitch{}
 
@@ -178,7 +175,7 @@ func switchDriver() {
 		Hub: physical.Hub{
 			Device: physical.Device{
 				Name:       switchName,
-				MACAddress: GenerateRandomMAC(),
+				MACAddress: utils.GenerateRandomMAC(),
 				LinkStatus: true,
 			},
 			NumberPorts: totalPorts,
@@ -199,7 +196,7 @@ func switchDriver() {
 		fmt.Printf("Enter name for End Device %d: ", i)
 		fmt.Scanln(&deviceName)
 
-		deviceMAC := GenerateRandomMAC()
+		deviceMAC := utils.GenerateRandomMAC()
 		devicePort := switchTopology.Switch.PortNumber // Assign port number
 		endDevice := &physical.Device{
 			Name:       deviceName,
@@ -216,42 +213,73 @@ func switchDriver() {
 		switchTopology.Switch.PortNumber++
 	}
 
-	// Display all devices with their MAC addresses
-	fmt.Println("Devices in the switch topology:")
-	for _, device := range switchTopology.EndDevices {
-		fmt.Printf("Name: %s, MAC: %s\n", device.Name, device.MACAddress)
-	}
+	//access control protocol
+	token := &datalink.Token{Available: true}
+	tokenChannel := make(chan bool)
+	go func() {
+		datalink.TokenPassing(switchTopology.EndDevices, token, 20*time.Second)
+		tokenChannel <- true
+	}()
 
-	// Ask user for source and receiver devices
-	fmt.Print("Enter MAC address of the source device: ")
-	var sourceMAC string
-	fmt.Scanln(&sourceMAC)
+	// Start the goroutine for prompting MAC addresses
+	macChannel := make(chan MACPair)
+	inputTrigger := make(chan bool, 1)
+	inputTrigger <- true
+	go func() {
+		for {
+			<-inputTrigger // Wait for trigger signal
 
-	fmt.Print("Enter MAC address of the receiver device: ")
-	var receiverMAC string
-	fmt.Scanln(&receiverMAC)
+			fmt.Println("Devices in the switch topology:")
+			for _, device := range switchTopology.EndDevices {
+				fmt.Printf("Name: %s, MAC: %s\n", device.Name, device.MACAddress)
+			}
+			fmt.Print("Enter MAC address of the source device (or 'exit' to stop): ")
+			var sourceMAC string
+			fmt.Scanln(&sourceMAC)
 
-	// Find the source and receiver devices
-	var source *physical.Device
-	var receiver *physical.Device
-	for _, device := range switchTopology.EndDevices {
-		if device.MACAddress == sourceMAC {
-			source = device
-		} else if device.MACAddress == receiverMAC {
-			receiver = device
+			if sourceMAC == "exit" {
+				break
+			}
+
+			fmt.Print("Enter message to send : ")
+			reader := bufio.NewReader(os.Stdin)
+			message, _ := reader.ReadString('\n')
+			message = message[:len(message)-1]
+
+			fmt.Print("Enter MAC address of the receiver device: ")
+			var receiverMAC string
+			fmt.Scanln(&receiverMAC)
+
+			macPair := MACPair{SourceMAC: sourceMAC, Message: message, ReceiverMAC: receiverMAC}
+			macChannel <- macPair
+		}
+	}()
+
+	// Main loop to handle token-based data transmission
+	for {
+		select {
+		case macPair := <-macChannel:
+			// Handle MAC pair input
+			sourceDevice := utils.FindDeviceByMAC(switchTopology.EndDevices, macPair.SourceMAC)
+			receiverDevice := utils.FindDeviceByMAC(switchTopology.EndDevices, macPair.ReceiverMAC)
+
+			if sourceDevice == nil || receiverDevice == nil {
+				fmt.Println("Error: Source or receiver device not found. Try again")
+				inputTrigger <- true
+				continue
+			}
+
+			if sourceDevice.HasToken {
+				switchTopology.SendDataToSwitch(&switchTopology.Switch, sourceDevice, receiverDevice, macPair.Message)
+				inputTrigger <- true
+			} else {
+				fmt.Println("Error: Source device does not have the token.")
+				inputTrigger <- true
+			}
+
+		case <-tokenChannel:
+			return
 		}
 	}
 
-	if source == nil || receiver == nil {
-		fmt.Println("Error: Source or receiver device not found.")
-		return
-	}
-
-	// Send message from source to receiver
-	fmt.Print("Enter message to send: ")
-	reader := bufio.NewReader(os.Stdin)
-	message, _ := reader.ReadString('\n')
-	message = message[:len(message)-1]
-
-	switchTopology.SendDataToSwitch(&switchTopology.Switch, source, receiver, message)
 }
