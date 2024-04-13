@@ -6,7 +6,7 @@ NetSimGo is a networking simulation project developed in Go. It aims to simulate
 
 - **Device Structs**: Provides basic structures for devices like hubs, bridges, switches, and end devices.
 - **Topologies**: Implements different network topologies such as point-to-point and star topologies.
-- **Data Link Layer**: Includes functionalities like connecting devices, sending and receiving data.
+- **Data Link Layer**: Includes functionalities like connecting devices, sending and receiving data, _**error correction and detection**_ using **_Hamming_** code, and **token passing** _access_ control protocol.
 
 ## Installation
 
@@ -44,8 +44,6 @@ go test
 In progress and planned future work includes:
 
 - **TCP/IP Model**: Encompassing the entire TCP/IP model, including layers beyond the physical and data link layers.
-- **Error Handling**: Implementing error handling mechanisms for robust network communication.
-- **Access Control**: Developing access control protocols to manage device permissions and security.
 - **Flow Control**: Implementing flow control mechanisms to regulate data transmission rates and prevent congestion.
 
 ## Contributing
