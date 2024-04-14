@@ -3,8 +3,6 @@ package topologies
 import (
 	"fmt"
 
-	"time"
-
 	"github.com/Mayvid0/netSimGo/internal/physical"
 )
 
@@ -19,7 +17,6 @@ type Packet struct {
 	IsEnd          bool
 	Data           []byte
 	Checksum       uint16
-	Timestamp      time.Time
 	Retransmit     bool // Flag to indicate if the packet needs retransmission
 }
 

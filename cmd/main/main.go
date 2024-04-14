@@ -304,7 +304,8 @@ func switchDriver() {
 			}
 
 			if sourceDevice.HasToken {
-				switchTopology.SendDataToSwitch(&switchTopology.Switch, sourceDevice, receiverDevice, macPair.Packet)
+				// switchTopology.SendDataToSwitch(&switchTopology.Switch, sourceDevice, receiverDevice, macPair.Packet)
+				switchTopology.InitiateSelectiveRepeat(sourceDevice, receiverDevice, switchDevice, macPair.Packet)
 				inputTrigger <- true
 			} else {
 				fmt.Println("Error: Source device does not have the token.")

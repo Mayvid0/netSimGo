@@ -2,27 +2,13 @@ package test
 
 import (
 	"fmt"
-	"math/rand"
 	"testing"
-	"time"
 
+	datalink "github.com/Mayvid0/netSimGo/internal/dataLinkLayer"
 	"github.com/Mayvid0/netSimGo/internal/physical"
 	"github.com/Mayvid0/netSimGo/internal/topologies"
+	"github.com/Mayvid0/netSimGo/utils"
 )
-
-func GenerateRandomMAC() string {
-	const hexChars = "0123456789ABCDEF"
-	source := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(source)
-	var mac string
-	for i := 0; i < 6; i++ {
-		if i > 0 {
-			mac += ":"
-		}
-		mac += fmt.Sprintf("%c%c", hexChars[r.Intn(len(hexChars))], hexChars[r.Intn(len(hexChars))])
-	}
-	return mac
-}
 
 func TestStarTopology(t *testing.T) {
 	star := &topologies.Star{}
@@ -31,7 +17,7 @@ func TestStarTopology(t *testing.T) {
 	// Adding end devices to the star topology
 	for i := 1; i <= 5; i++ {
 		deviceName := fmt.Sprintf("Device%d", i)
-		deviceMAC := GenerateRandomMAC()
+		deviceMAC := utils.GenerateRandomMAC()
 		device := &physical.Device{Name: deviceName, MACAddress: deviceMAC, LinkStatus: true}
 		star.AddEndDevice(device)
 	}
@@ -47,6 +33,7 @@ func TestStarTopology(t *testing.T) {
 	// Sending data from one end device to the hub
 	sourceDevice := star.EndDevices[0]
 	message := "Hello, Hub, this is a unit test!"
-	star.SendDataToHub(sourceDevice, hub, message)
+	packets := datalink.CreatePackets(message, 8)
+	star.SendDataToHub(sourceDevice, hub, packets)
 
 }
