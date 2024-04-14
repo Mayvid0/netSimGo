@@ -2,6 +2,7 @@ package datalink
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"time"
 
@@ -9,11 +10,7 @@ import (
 	"github.com/Mayvid0/netSimGo/internal/topologies"
 )
 
-// we must create a struct like star topology , but with switch
-
 type StarTopologyWithSwitch struct {
-
-	// import the topology functions and the switch struct created in physical layer
 	physical.Switch
 	topologies.Topology
 }
@@ -31,31 +28,27 @@ func (s *StarTopologyWithSwitch) ConnectEndDevice(switchDevice *physical.Switch,
 		return fmt.Errorf("cannot connect devices %s and %s: one or both devices are not linked", switchDevice.Name, device.Name)
 	}
 
-	fmt.Printf("Connection established between switch %s and end device %s\n", switchDevice.Name, device.Name)
+	log.Printf("Connection established between switch %s and end device %s\n", switchDevice.Name, device.Name)
 	return nil
 }
 
 func (s *StarTopologyWithSwitch) SwitchingTable(switchDevice *physical.Switch) {
-	// Create a table of the mapping of each port to its corresponding MAC address
-	// Perform address learning
 	for _, device := range s.EndDevices {
 		switchDevice.SwitchingTable[device.MACAddress] = device.PortNumber
 	}
 
-	// Display the switching table
 	s.DisplaySwitchingTable(switchDevice)
 }
 
 func (s *StarTopologyWithSwitch) DisplaySwitchingTable(switchDevice *physical.Switch) {
-	fmt.Println("Switching Table:")
-	fmt.Println("MAC Address\tPort Number")
+	log.Println("Switching Table:")
+	log.Println("MAC Address\tPort Number")
 	for mac, port := range switchDevice.SwitchingTable {
-		fmt.Printf("%s\t\t%d\n", mac, port)
+		log.Printf("%s\t\t%d\n", mac, port)
 	}
 }
 
-func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, packets []topologies.Packet) {
-	// Find the end device with the specified port number
+func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, packet topologies.Packet) {
 	var targetDevice *physical.Device
 	for _, device := range s.EndDevices {
 		if device.PortNumber == port {
@@ -65,45 +58,116 @@ func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, packets []topologi
 	}
 
 	if targetDevice != nil {
-		fmt.Printf("Sending packets from Switch %s to %s\n", s.Name, targetDevice.Name)
-		for _, packet := range packets {
-			s.ReceiveDataFromSwitch(targetDevice, packet)
-		}
+		log.Printf("Sending packet %d from Switch %s to %s\n", packet.SequenceNumber, s.Name, targetDevice.Name)
+		s.ReceiveDataFromSwitch(targetDevice, packet)
 	} else {
-		fmt.Println("Error: End device not found for port number", port)
+		log.Println("Error: End device not found for port number", port)
 	}
 }
 
 func (s *StarTopologyWithSwitch) ReceiveDataFromSwitch(receiver *physical.Device, packet topologies.Packet) {
-	fmt.Printf("Device %s received packet from Switch %s\n", receiver.Name, s.Name)
+	log.Printf("Device %s received packet %d from Switch %s\n", receiver.Name, packet.SequenceNumber, s.Name)
 	receivedString := string(packet.Data)
-
-	// Display the received string
-	fmt.Println("Received data: ", receivedString)
-	// if packet.IsEnd {
-	// 	// Convert the entire packet data to a string
-	// 	receivedString := string(packet.Data)
-
-	// 	// Display the received string
-	// 	fmt.Println("Received data: ", receivedString)
-	// }
-
-	// You can add additional processing logic here based on the packet data
+	log.Println("Received data:", receivedString)
 }
 
-func (s *StarTopologyWithSwitch) SendDataToSwitch(switchDevice *physical.Switch, source *physical.Device, receiver *physical.Device, packets []topologies.Packet) {
+func (s *StarTopologyWithSwitch) ReceiveAckFromSwitch(receiver *physical.Device, packet topologies.Packet) <-chan int {
+	ackChannel := make(chan int)
+	packet.Acknowledgment = true
+
+	go func() {
+		randomDelay := time.Duration(rand.Intn(5)) // Random delay up to 10 seconds
+		time.Sleep(time.Second * randomDelay)
+		for {
+			if packet.Acknowledgment {
+				ackChannel <- packet.SequenceNumber
+			}
+		}
+	}()
+
+	return ackChannel
+}
+
+func (s *StarTopologyWithSwitch) SendDataToSwitch(switchDevice *physical.Switch, source *physical.Device, receiver *physical.Device, packet topologies.Packet) {
 	port, ok := switchDevice.SwitchingTable[receiver.MACAddress]
 	if ok {
-		fmt.Printf("Sending packets from %s to Switch %s\n", source.Name, switchDevice.Name)
-		s.SendDataFromSwitch(port, packets)
+		log.Printf("Sending packet from %s to Switch %s\n", source.Name, switchDevice.Name)
+		s.SendDataFromSwitch(port, packet)
 	} else {
-		// Perform address learning
-		fmt.Printf("Performing address learning\n")
+		log.Printf("Performing address learning\n")
 		s.SwitchingTable(switchDevice)
-		s.SendDataToSwitch(switchDevice, source, receiver, packets)
+		s.SendDataToSwitch(switchDevice, source, receiver, packet)
 	}
 }
 
+func (s *StarTopologyWithSwitch) InitiateSelectiveRepeat(source *physical.Device, receiver *physical.Device, swi *physical.Switch, packets []topologies.Packet) {
+	windowSize := 4
+	rightPointer := 0
+	leftPointer := 0
+	receivedAcksLeft := make(map[int]bool)
+	timers := make(map[int]*time.Timer)
+
+	for rightPointer < len(packets) && leftPointer < len(packets) {
+		for leftPointer <= rightPointer {
+			// fmt.Printf("rightPointer: %d, len(packets): %d\n", rightPointer, len(packets))
+
+			tokenAvailable := source.HasToken
+			if !tokenAvailable {
+				fmt.Println("Token not available, waiting...")
+				time.Sleep(10 * time.Second)
+				continue // Skip this iteration if token is not available
+			}
+
+			if rightPointer-leftPointer >= windowSize || rightPointer >= len(packets) {
+				fmt.Println("All packets sent and acknowledged.")
+				break
+			}
+
+			packetToSend := packets[rightPointer]
+			s.SendDataToSwitch(swi, source, receiver, packetToSend)
+
+			rightPointer++
+
+			timer := time.AfterFunc(time.Second*3, func() {
+				fmt.Printf("Timer expired and no ack was received for packet %d......Retransmitting....\n", packetToSend.SequenceNumber)
+				s.RetransmitPacket(source, receiver, packetToSend, swi)
+			})
+			timers[packetToSend.SequenceNumber] = timer
+
+			select {
+			case ackPacketNumber := <-s.ReceiveAckFromSwitch(receiver, packetToSend):
+				if ackPacketNumber >= 0 && ackPacketNumber < len(packets) {
+					if !receivedAcksLeft[ackPacketNumber] {
+						receivedAcksLeft[ackPacketNumber] = true
+						log.Printf("Received ack of packet %d\n", ackPacketNumber)
+
+						if timer, ok := timers[ackPacketNumber]; ok {
+							// fmt.Printf("stopping timer of packet %d\n", ackPacketNumber)
+							timer.Stop()
+							delete(timers, ackPacketNumber)
+						}
+
+						for leftPointer < len(packets) && leftPointer <= rightPointer && receivedAcksLeft[packets[leftPointer].SequenceNumber] {
+							delete(receivedAcksLeft, packets[leftPointer].SequenceNumber)
+							leftPointer++
+							// fmt.Printf("left pointer is %d\n", leftPointer)
+						}
+
+					}
+				} else {
+					fmt.Printf("Invalid acknowledgment packet number: %d\n", ackPacketNumber)
+				}
+
+			}
+		}
+	}
+
+}
+
+func (s *StarTopologyWithSwitch) RetransmitPacket(source *physical.Device, receiver *physical.Device, packetToSend topologies.Packet, swi *physical.Switch) {
+	log.Printf("Re transmitting packet %d \n", packetToSend.SequenceNumber)
+	s.SendDataToSwitch(swi, source, receiver, packetToSend)
+}
 func hammingEncoding(inputMessage string) string {
 
 	// Create a 7-bit Hamming code array
@@ -222,22 +286,13 @@ func TokenPassing(devices []*physical.Device, token *Token, tokenHoldTime time.D
 			devices[currentIndex].HasToken = false
 			nextIndex := (currentIndex + 1) % len(devices)
 			devices[nextIndex].HasToken = true
+			fmt.Printf("Token assigned to device %s\n", devices[nextIndex].Name)
 
 			// Move to the next device
 			currentIndex = nextIndex
 		}
 	}
 }
-
-// Flow control protocol ( selective repeat probably )
-
-// type Packet struct {
-// 	SequenceNumber int
-// 	Acknowledgment bool
-// 	Data           []byte
-// 	Checksum       uint16
-// 	Timestamp      time.Time
-// }
 
 // Divide the message into fixed size chunks and create packets
 func CreatePackets(message string, maxPacketSize int) []topologies.Packet {
@@ -256,11 +311,11 @@ func CreatePackets(message string, maxPacketSize int) []topologies.Packet {
 	for i, chunk := range chunks {
 		checksum := calculateChecksum(chunk) // Calculate checksum for each chunk
 		packet := topologies.Packet{
-			SequenceNumber: i,
+			SequenceNumber: i % 8,
 			Acknowledgment: false, // Data packet
 			Data:           chunk,
-			Checksum:       checksum,   // Set checksum for the packet
-			Timestamp:      time.Now(), // Set timestamp for the packet
+			Checksum:       checksum, // Set checksum for the packet
+
 		}
 
 		// Check if it is the last chunk and set isEnd attribute
