@@ -54,7 +54,7 @@ func (s *StarTopologyWithSwitch) DisplaySwitchingTable(switchDevice *physical.Sw
 	}
 }
 
-func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, message string) {
+func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, packets []topologies.Packet) {
 	// Find the end device with the specified port number
 	var targetDevice *physical.Device
 	for _, device := range s.EndDevices {
@@ -65,60 +65,42 @@ func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, message string) {
 	}
 
 	if targetDevice != nil {
-		if message[0] == '1' || message[0] == '0' {
-			fmt.Printf("Sending message from Switch %s to %s before adding some noise: %s\n", s.Name, targetDevice.Name, message)
-			noisyInputMessage := addNoise(message)
-			fmt.Printf("Sending message from Switch %s to %s after adding some noise: %s\n", s.Name, targetDevice.Name, noisyInputMessage)
-			s.ReceiveDataFromSwitch(targetDevice, noisyInputMessage)
-		} else {
-			fmt.Printf("Sending message from Switch %s to %s before adding some noise: %s\n", s.Name, targetDevice.Name, message)
-
-			s.ReceiveDataFromSwitch(targetDevice, message)
+		fmt.Printf("Sending packets from Switch %s to %s\n", s.Name, targetDevice.Name)
+		for _, packet := range packets {
+			s.ReceiveDataFromSwitch(targetDevice, packet)
 		}
-
-		// Send the message to the target device here
 	} else {
 		fmt.Println("Error: End device not found for port number", port)
 	}
 }
 
-func (s *StarTopologyWithSwitch) ReceiveDataFromSwitch(receiver *physical.Device, message string) {
-	if message[0] == '0' || message[0] == '1' {
-		fmt.Printf(" Device %s Received message: before hamming error detection and correction %s \n", receiver.Name, message)
-		correctedData := hammingDecoding(message)
-		fmt.Printf(" Device %s Received message: after hamming error detection and correction %s \n", receiver.Name, correctedData)
-	} else {
-		fmt.Printf(" Device %s Received message:  %s \n", receiver.Name, message)
-	}
+func (s *StarTopologyWithSwitch) ReceiveDataFromSwitch(receiver *physical.Device, packet topologies.Packet) {
+	fmt.Printf("Device %s received packet from Switch %s\n", receiver.Name, s.Name)
+	receivedString := string(packet.Data)
 
+	// Display the received string
+	fmt.Println("Received data: ", receivedString)
+	// if packet.IsEnd {
+	// 	// Convert the entire packet data to a string
+	// 	receivedString := string(packet.Data)
+
+	// 	// Display the received string
+	// 	fmt.Println("Received data: ", receivedString)
+	// }
+
+	// You can add additional processing logic here based on the packet data
 }
 
-func (s *StarTopologyWithSwitch) SendDataToSwitch(switchDevice *physical.Switch, source *physical.Device, receiver *physical.Device, message string) {
-	if len(message) == 4 && (message[0] == '0' || message[0] == '1') {
-		// Encode the message if it's a bit
-		encodedMessage := hammingEncoding(message)
-		port, ok := switchDevice.SwitchingTable[receiver.MACAddress]
-		if ok {
-			fmt.Printf("Sending encoded message from %s to Switch %s: %s\n", source.Name, switchDevice.Name, encodedMessage)
-			s.SendDataFromSwitch(port, encodedMessage)
-		} else {
-			// Perform address learning
-			fmt.Printf("Performing address learning\n")
-			s.SwitchingTable(switchDevice)
-			s.SendDataToSwitch(switchDevice, source, receiver, encodedMessage)
-		}
+func (s *StarTopologyWithSwitch) SendDataToSwitch(switchDevice *physical.Switch, source *physical.Device, receiver *physical.Device, packets []topologies.Packet) {
+	port, ok := switchDevice.SwitchingTable[receiver.MACAddress]
+	if ok {
+		fmt.Printf("Sending packets from %s to Switch %s\n", source.Name, switchDevice.Name)
+		s.SendDataFromSwitch(port, packets)
 	} else {
-		// Send the original message if it's not a single bit
-		port, ok := switchDevice.SwitchingTable[receiver.MACAddress]
-		if ok {
-			fmt.Printf("Sending message from %s to Switch %s: %s\n", source.Name, switchDevice.Name, message)
-			s.SendDataFromSwitch(port, message)
-		} else {
-			// Perform address learning
-			fmt.Printf("Performing address learning\n")
-			s.SwitchingTable(switchDevice)
-			s.SendDataToSwitch(switchDevice, source, receiver, message)
-		}
+		// Perform address learning
+		fmt.Printf("Performing address learning\n")
+		s.SwitchingTable(switchDevice)
+		s.SendDataToSwitch(switchDevice, source, receiver, packets)
 	}
 }
 
@@ -245,4 +227,94 @@ func TokenPassing(devices []*physical.Device, token *Token, tokenHoldTime time.D
 			currentIndex = nextIndex
 		}
 	}
+}
+
+// Flow control protocol ( selective repeat probably )
+
+// type Packet struct {
+// 	SequenceNumber int
+// 	Acknowledgment bool
+// 	Data           []byte
+// 	Checksum       uint16
+// 	Timestamp      time.Time
+// }
+
+// Divide the message into fixed size chunks and create packets
+func CreatePackets(message string, maxPacketSize int) []topologies.Packet {
+	var packets []topologies.Packet
+
+	// Convert the message to bits
+	messageBits := stringToBits(message)
+
+	// Split the message bits into chunks
+	chunks := splitBits(messageBits, maxPacketSize)
+
+	// Calculate the total number of packets
+	totalPackets := len(chunks)
+
+	// Create packets with sequence numbers
+	for i, chunk := range chunks {
+		checksum := calculateChecksum(chunk) // Calculate checksum for each chunk
+		packet := topologies.Packet{
+			SequenceNumber: i,
+			Acknowledgment: false, // Data packet
+			Data:           chunk,
+			Checksum:       checksum,   // Set checksum for the packet
+			Timestamp:      time.Now(), // Set timestamp for the packet
+		}
+
+		// Check if it is the last chunk and set isEnd attribute
+		if i == totalPackets-1 {
+			packet.IsEnd = true
+		}
+
+		packets = append(packets, packet)
+	}
+
+	return packets
+}
+
+// Convert string to bits
+func stringToBits(str string) []byte {
+	var bits []byte
+	for _, char := range str {
+		bit := byte(char)
+		bits = append(bits, bit)
+	}
+	return bits
+}
+
+// Split the message bits into fixed size chunks
+func splitBits(bits []byte, chunkSize int) [][]byte {
+	var chunks [][]byte
+	for i := 0; i < len(bits); i += chunkSize {
+		end := i + chunkSize
+		if end > len(bits) {
+			end = len(bits)
+		}
+		chunks = append(chunks, bits[i:end])
+	}
+	return chunks
+}
+
+// Calculate checksum for a byte array
+func calculateChecksum(data []byte) uint16 {
+	var sum uint32
+
+	for i := 0; i < len(data)-1; i += 2 {
+		sum += uint32(data[i])<<8 + uint32(data[i+1])
+	}
+
+	if len(data)%2 != 0 {
+		sum += uint32(data[len(data)-1]) << 8
+	}
+
+	for sum>>16 > 0 {
+		sum = (sum & 0xFFFF) + (sum >> 16)
+	}
+
+	// Take the one's complement of the sum
+	checksum := uint16(^sum)
+
+	return checksum
 }

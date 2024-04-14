@@ -122,40 +122,74 @@ func starDriver() {
 		topology.ConnectEndDevice(hub, device)
 	}
 
-	// Print devices with their names and MAC addresses for user reference
-	fmt.Println("Devices in the topology:")
-	fmt.Printf("Hub: Name: %s, MAC: %s\n", hubName, hub.MACAddress)
-	for _, device := range topology.EndDevices {
-		fmt.Printf("Name: %s, MAC: %s\n", device.Name, device.MACAddress)
-	}
+	token := &datalink.Token{Available: true}
+	tokenChannel := make(chan bool)
+	go func() {
+		datalink.TokenPassing(topology.EndDevices, token, 10*time.Second)
+		tokenChannel <- true
+	}()
 
-	fmt.Print("Enter device that has to send message (by MAC address): ")
-	var sourceMAC string
-	fmt.Scanln(&sourceMAC)
+	// Start the goroutine for prompting MAC addresses
+	macChannel := make(chan MACPair)
+	inputTrigger := make(chan bool, 1)
+	inputTrigger <- true
+	go func() {
+		for {
+			<-inputTrigger // Wait for trigger signal
 
-	var source *physical.Device
-	for _, device := range topology.EndDevices {
-		if device.MACAddress == sourceMAC {
-			source = device
-			break
+			fmt.Println("Devices in the Hub topology:")
+			for _, device := range topology.EndDevices {
+				fmt.Printf("Name: %s, MAC: %s\n", device.Name, device.MACAddress)
+			}
+			fmt.Print("Enter MAC address of the source device (or 'exit' to stop): ")
+			var sourceMAC string
+			fmt.Scanln(&sourceMAC)
+
+			if sourceMAC == "exit" {
+				break
+			}
+
+			fmt.Print("Enter message to send : ")
+			reader := bufio.NewReader(os.Stdin)
+			message, _ := reader.ReadString('\n')
+			message = message[:len(message)-1]
+
+			packets := datalink.CreatePackets(message, 8)
+			macPair := MACPair{SourceMAC: sourceMAC, Packet: packets, ReceiverMAC: ""}
+			macChannel <- macPair
+		}
+	}()
+
+	// Main loop to handle token-based data transmission
+	for {
+		select {
+		case macPair := <-macChannel:
+			// Handle MAC pair input
+			sourceDevice := utils.FindDeviceByMAC(topology.EndDevices, macPair.SourceMAC)
+
+			if sourceDevice == nil {
+				fmt.Println("Error: Device not found. Try again")
+				inputTrigger <- true
+				continue
+			}
+
+			if sourceDevice.HasToken {
+				topology.SendDataToHub(sourceDevice, hub, macPair.Packet)
+				inputTrigger <- true
+			} else {
+				fmt.Println("Error: Source device does not have the token.")
+				inputTrigger <- true
+			}
+
+		case <-tokenChannel:
+			return
 		}
 	}
-	if source == nil {
-		fmt.Println("Error: Device not found.")
-		return
-	}
-
-	fmt.Print("Enter message to send: ")
-	reader := bufio.NewReader(os.Stdin)
-	message, _ := reader.ReadString('\n')
-	message = message[:len(message)-1]
-
-	topology.SendDataToHub(source, hub, message)
 }
 
 type MACPair struct {
 	SourceMAC   string
-	Message     string
+	Packet      []topologies.Packet
 	ReceiverMAC string
 }
 
@@ -245,12 +279,12 @@ func switchDriver() {
 			reader := bufio.NewReader(os.Stdin)
 			message, _ := reader.ReadString('\n')
 			message = message[:len(message)-1]
-
+			packets := datalink.CreatePackets(message, 8)
 			fmt.Print("Enter MAC address of the receiver device: ")
 			var receiverMAC string
 			fmt.Scanln(&receiverMAC)
 
-			macPair := MACPair{SourceMAC: sourceMAC, Message: message, ReceiverMAC: receiverMAC}
+			macPair := MACPair{SourceMAC: sourceMAC, Packet: packets, ReceiverMAC: receiverMAC}
 			macChannel <- macPair
 		}
 	}()
@@ -270,7 +304,7 @@ func switchDriver() {
 			}
 
 			if sourceDevice.HasToken {
-				switchTopology.SendDataToSwitch(&switchTopology.Switch, sourceDevice, receiverDevice, macPair.Message)
+				switchTopology.SendDataToSwitch(&switchTopology.Switch, sourceDevice, receiverDevice, macPair.Packet)
 				inputTrigger <- true
 			} else {
 				fmt.Println("Error: Source device does not have the token.")
