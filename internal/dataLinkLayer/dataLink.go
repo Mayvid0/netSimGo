@@ -58,7 +58,7 @@ func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, packet topologies.
 	}
 
 	if targetDevice != nil {
-		log.Printf("Sending packet %d from Switch %s to %s\n", packet.SequenceNumber, s.Name, targetDevice.Name)
+		log.Printf("Sending frame %d from Switch %s to %s\n", packet.SequenceNumber, s.Name, targetDevice.Name)
 		s.ReceiveDataFromSwitch(targetDevice, packet)
 	} else {
 		log.Println("Error: End device not found for port number", port)
@@ -66,9 +66,21 @@ func (s *StarTopologyWithSwitch) SendDataFromSwitch(port int, packet topologies.
 }
 
 func (s *StarTopologyWithSwitch) ReceiveDataFromSwitch(receiver *physical.Device, packet topologies.Packet) {
-	log.Printf("Device %s received packet %d from Switch %s\n", receiver.Name, packet.SequenceNumber, s.Name)
+	log.Printf("Device %s received frame %d from Switch %s\n", receiver.Name, packet.SequenceNumber, s.Name)
 	receivedString := string(packet.Data)
 	log.Println("Received data:", receivedString)
+}
+
+func (s *StarTopologyWithSwitch) SendDataToSwitch(switchDevice *physical.Switch, source *physical.Device, receiver *physical.Device, packet topologies.Packet) {
+	port, ok := switchDevice.SwitchingTable[receiver.MACAddress]
+	if ok {
+		log.Printf("Sending frame from %s to Switch %s\n", source.Name, switchDevice.Name)
+		s.SendDataFromSwitch(port, packet)
+	} else {
+		log.Printf("Performing address learning\n")
+		s.SwitchingTable(switchDevice)
+		s.SendDataToSwitch(switchDevice, source, receiver, packet)
+	}
 }
 
 func (s *StarTopologyWithSwitch) ReceiveAckFromSwitch(receiver *physical.Device, packet topologies.Packet) <-chan int {
@@ -86,18 +98,6 @@ func (s *StarTopologyWithSwitch) ReceiveAckFromSwitch(receiver *physical.Device,
 	}()
 
 	return ackChannel
-}
-
-func (s *StarTopologyWithSwitch) SendDataToSwitch(switchDevice *physical.Switch, source *physical.Device, receiver *physical.Device, packet topologies.Packet) {
-	port, ok := switchDevice.SwitchingTable[receiver.MACAddress]
-	if ok {
-		log.Printf("Sending packet from %s to Switch %s\n", source.Name, switchDevice.Name)
-		s.SendDataFromSwitch(port, packet)
-	} else {
-		log.Printf("Performing address learning\n")
-		s.SwitchingTable(switchDevice)
-		s.SendDataToSwitch(switchDevice, source, receiver, packet)
-	}
 }
 
 func (s *StarTopologyWithSwitch) InitiateSelectiveRepeat(source *physical.Device, receiver *physical.Device, swi *physical.Switch, packets []topologies.Packet) {
@@ -119,7 +119,7 @@ func (s *StarTopologyWithSwitch) InitiateSelectiveRepeat(source *physical.Device
 			}
 
 			if rightPointer-leftPointer >= windowSize || rightPointer >= len(packets) {
-				fmt.Println("All packets sent and acknowledged.")
+				fmt.Println("All frames sent and acknowledged.")
 				break
 			}
 
@@ -129,7 +129,7 @@ func (s *StarTopologyWithSwitch) InitiateSelectiveRepeat(source *physical.Device
 			rightPointer++
 
 			timer := time.AfterFunc(time.Second*3, func() {
-				fmt.Printf("Timer expired and no ack was received for packet %d......Retransmitting....\n", packetToSend.SequenceNumber)
+				fmt.Printf("Timer expired and no ack was received for frame %d......Retransmitting....\n", packetToSend.SequenceNumber)
 				s.RetransmitPacket(source, receiver, packetToSend, swi)
 			})
 			timers[packetToSend.SequenceNumber] = timer
@@ -139,7 +139,7 @@ func (s *StarTopologyWithSwitch) InitiateSelectiveRepeat(source *physical.Device
 				if ackPacketNumber >= 0 && ackPacketNumber < len(packets) {
 					if !receivedAcksLeft[ackPacketNumber] {
 						receivedAcksLeft[ackPacketNumber] = true
-						log.Printf("Received ack of packet %d\n", ackPacketNumber)
+						log.Printf("Received ack of frame %d\n", ackPacketNumber)
 
 						if timer, ok := timers[ackPacketNumber]; ok {
 							// fmt.Printf("stopping timer of packet %d\n", ackPacketNumber)
@@ -155,7 +155,7 @@ func (s *StarTopologyWithSwitch) InitiateSelectiveRepeat(source *physical.Device
 
 					}
 				} else {
-					fmt.Printf("Invalid acknowledgment packet number: %d\n", ackPacketNumber)
+					fmt.Printf("Invalid acknowledgment frame number: %d\n", ackPacketNumber)
 				}
 
 			}
@@ -165,7 +165,7 @@ func (s *StarTopologyWithSwitch) InitiateSelectiveRepeat(source *physical.Device
 }
 
 func (s *StarTopologyWithSwitch) RetransmitPacket(source *physical.Device, receiver *physical.Device, packetToSend topologies.Packet, swi *physical.Switch) {
-	log.Printf("Re transmitting packet %d \n", packetToSend.SequenceNumber)
+	log.Printf("Re transmitting frame %d \n", packetToSend.SequenceNumber)
 	s.SendDataToSwitch(swi, source, receiver, packetToSend)
 }
 func hammingEncoding(inputMessage string) string {
