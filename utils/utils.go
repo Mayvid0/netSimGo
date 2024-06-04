@@ -1,7 +1,10 @@
+// utils/ip_assigner.go
 package utils
 
 import (
+	"fmt"
 	"math/rand"
+	"net"
 	"strings"
 	"time"
 
@@ -31,6 +34,7 @@ func GenerateRandomMAC() string {
 	}
 	return sb.String()
 }
+
 func CalculateChecksum(data []byte) uint16 {
 	var sum uint32
 
@@ -53,4 +57,49 @@ func CalculateChecksum(data []byte) uint16 {
 	checksum := uint16(^sum)
 
 	return checksum
+}
+
+func AssignIPAddress(devices []*physical.Device, subnetCIDR string) error {
+	_, ipNet, err := net.ParseCIDR(subnetCIDR)
+	if err != nil {
+		return fmt.Errorf("invalid subnet CIDR: %v", err)
+	}
+
+	assignedIPs := make(map[string]bool)
+	startIP := ipNet.IP.Mask(ipNet.Mask)
+	incrementIP(startIP)
+
+	for _, device := range devices {
+		for ip := startIP; ipNet.Contains(ip); incrementIP(ip) {
+			ipStr := ip.String()
+			if !isIPAssigned(ipStr, assignedIPs) {
+				device.IPAddress = fmt.Sprintf("%s/%d", ipStr, maskToCIDR(ipNet.Mask))
+				assignedIPs[ipStr] = true
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// IncrementIP increments an IP address by one.
+func incrementIP(ip net.IP) {
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] != 0 {
+			break
+		}
+	}
+}
+
+// MaskToCIDR converts a subnet mask to CIDR notation.
+func maskToCIDR(mask net.IPMask) int {
+	ones, _ := mask.Size()
+	return ones
+}
+
+// IsIPAssigned checks if an IP address is already assigned.
+func isIPAssigned(ip string, assignedIPs map[string]bool) bool {
+	return assignedIPs[ip]
 }

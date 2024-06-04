@@ -28,7 +28,7 @@ func (s *StarTopologyWithSwitch) ConnectEndDevice(switchDevice *physical.Switch,
 		return fmt.Errorf("cannot connect devices %s and %s: one or both devices are not linked", switchDevice.Name, device.Name)
 	}
 
-	log.Printf("Connection established between switch %s and end device %s\n", switchDevice.Name, device.Name)
+	log.Printf("Connection established between %s and %s\n", switchDevice.Name, device.Name)
 	return nil
 }
 

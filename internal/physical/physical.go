@@ -6,6 +6,7 @@ package physical
 type Device struct {
 	Name       string
 	MACAddress string
+	IPAddress  string
 	LinkStatus bool
 	PortNumber int
 	HasToken   bool
