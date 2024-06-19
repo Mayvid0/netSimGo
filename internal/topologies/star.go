@@ -13,6 +13,8 @@ type Star struct {
 }
 
 type Packet struct {
+	SourceIp       string
+	DestinationIp  string
 	SequenceNumber int
 	Acknowledgment bool
 	IsEnd          bool

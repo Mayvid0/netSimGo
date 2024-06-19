@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Mayvid0/netSimGo/internal/network"
 	"github.com/Mayvid0/netSimGo/internal/physical"
 )
 
@@ -59,7 +60,18 @@ func CalculateChecksum(data []byte) uint16 {
 	return checksum
 }
 
-func AssignIPAddress(devices []*physical.Device, subnetCIDR string) error {
+func AssignIPAddress(devices interface{}, subnetCIDR string) error {
+	var deviceList []*physical.Device
+
+	switch v := devices.(type) {
+	case []*physical.Device:
+		deviceList = v
+	case *physical.Device:
+		deviceList = append(deviceList, v)
+	default:
+		return fmt.Errorf("unsupported type: %T", devices)
+	}
+
 	_, ipNet, err := net.ParseCIDR(subnetCIDR)
 	if err != nil {
 		return fmt.Errorf("invalid subnet CIDR: %v", err)
@@ -69,7 +81,7 @@ func AssignIPAddress(devices []*physical.Device, subnetCIDR string) error {
 	startIP := ipNet.IP.Mask(ipNet.Mask)
 	incrementIP(startIP)
 
-	for _, device := range devices {
+	for _, device := range deviceList {
 		for ip := startIP; ipNet.Contains(ip); incrementIP(ip) {
 			ipStr := ip.String()
 			if !isIPAssigned(ipStr, assignedIPs) {
@@ -102,4 +114,47 @@ func maskToCIDR(mask net.IPMask) int {
 // IsIPAssigned checks if an IP address is already assigned.
 func isIPAssigned(ip string, assignedIPs map[string]bool) bool {
 	return assignedIPs[ip]
+}
+
+func SameNid(ip1 string, ip2 string) (bool, error) {
+	ip1Addr, ip1Net, err := net.ParseCIDR(ip1)
+	if err != nil {
+		return false, fmt.Errorf("error parsing IP address %s: %v", ip1, err)
+	}
+
+	ip2Addr, ip2Net, err := net.ParseCIDR(ip2)
+	if err != nil {
+		return false, fmt.Errorf("error parsing IP address %s: %v", ip2, err)
+	}
+
+	// Check if the IP addresses are in the same network by comparing network addresses
+	return ip1Addr.Mask(ip1Net.Mask).Equal(ip2Addr.Mask(ip2Net.Mask)), nil
+}
+
+func LongestPrefixMatch(ipWithMask string, routingTable []network.RoutingEntry) string {
+	var longestMatch string
+
+	_, ipNet, err := net.ParseCIDR(ipWithMask)
+	if err != nil {
+		fmt.Println("Error parsing IP with mask:", err)
+		return longestMatch
+	}
+
+	maxPrefixLen := -1
+	for _, entry := range routingTable {
+		_, routeNet, err := net.ParseCIDR(entry.NetworkAddressMask)
+		if err != nil {
+			fmt.Println("Error parsing routing table entry:", err)
+			continue
+		}
+
+		// Calculate prefix length manually
+		ipPrefixLen, _ := routeNet.Mask.Size()
+		if ipNet.Contains(routeNet.IP) && ipPrefixLen > maxPrefixLen {
+			maxPrefixLen = ipPrefixLen
+			longestMatch = entry.NextHop
+		}
+	}
+
+	return longestMatch
 }
